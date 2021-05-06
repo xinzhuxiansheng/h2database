@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -592,7 +592,7 @@ public class BuildBase {
      */
     protected void downloadUsingMaven(String target, String group,
             String artifact, String version, String sha1Checksum) {
-        String repoDir = "http://repo1.maven.org/maven2";
+        String repoDir = "https://repo1.maven.org/maven2";
         Path targetFile = Paths.get(target);
         if (Files.exists(targetFile)) {
             return;
@@ -662,7 +662,7 @@ public class BuildBase {
             int len = 0;
             while (true) {
                 long now = System.nanoTime();
-                if (now > last + TimeUnit.SECONDS.toNanos(1)) {
+                if (now - last > 1_000_000_000L) {
                     println("Downloaded " + len + " bytes");
                     last = now;
                 }

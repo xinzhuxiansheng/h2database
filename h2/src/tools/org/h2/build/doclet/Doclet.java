@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -63,7 +63,7 @@ public class Doclet {
             processClass(clazz);
         }
         if (errorCount > 0) {
-            throw new IOException("FAILED: " + errorCount + " errors found");
+            new IOException("WARNING: " + errorCount + " javadoc issues found").printStackTrace();
         }
         return true;
     }
@@ -417,7 +417,10 @@ public class Doclet {
     }
 
     private static boolean skipField(ClassDoc clazz, FieldDoc field) {
-        if (field.isPrivate() || field.containingClass() != clazz) {
+        if (field.isPrivate() || field.isPackagePrivate() || field.containingClass() != clazz) {
+            return true;
+        }
+        if (field.isStatic() && field.isFinal() && "INSTANCE".equals(field.name())) {
             return true;
         }
         return false;
@@ -433,7 +436,7 @@ public class Doclet {
             return true;
         }
         String name = method.name();
-        if (method.isPrivate() || name.equals("finalize")) {
+        if (method.isPrivate() || method.isPackagePrivate() || name.equals("finalize")) {
             return true;
         }
         if (method.isConstructor()

@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -271,8 +271,25 @@ public class FilePathDisk extends FilePath {
         try {
             return getPath(path.toRealPath().toString());
         } catch (IOException e) {
-            return getPath(path.toAbsolutePath().normalize().toString());
+            /*
+             * File does not exist or isn't accessible, try to get the real path
+             * of parent directory.
+             */
+            return getPath(toRealPath(path.toAbsolutePath().normalize()).toString());
         }
+    }
+
+    private static Path toRealPath(Path path) {
+        Path parent = path.getParent();
+        if (parent == null) {
+            return path;
+        }
+        try {
+            parent = parent.toRealPath();
+        } catch (IOException e) {
+            parent = toRealPath(parent);
+        }
+        return parent.resolve(path.getFileName());
     }
 
     @Override

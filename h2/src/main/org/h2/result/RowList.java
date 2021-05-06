@@ -1,21 +1,24 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.result;
 
 import java.util.ArrayList;
-
 import org.h2.engine.Constants;
 import org.h2.engine.Database;
-import org.h2.engine.Session;
+import org.h2.engine.SessionLocal;
 import org.h2.store.Data;
 import org.h2.store.FileStore;
+import org.h2.table.Column;
 import org.h2.table.Table;
 import org.h2.util.Utils;
-import org.h2.value.DataType;
 import org.h2.value.Value;
+import org.h2.value.ValueLob;
+import org.h2.value.lob.LobData;
+import org.h2.value.lob.LobDataDatabase;
+import org.h2.value.lob.LobDataFile;
 
 /**
  * A list of rows. If the list grows too large, it is buffered to disk
@@ -23,14 +26,15 @@ import org.h2.value.Value;
  */
 public class RowList implements AutoCloseable {
 
-    private final Session session;
+    private final SessionLocal session;
     private final Table table;
     private final ArrayList<Row> list = Utils.newSmallArrayList();
-    private int size;
-    private int index, listIndex;
+    private long size;
+    private long index;
+    private int listIndex;
     private FileStore file;
     private Data rowBuff;
-    private ArrayList<Value> lobs;
+    private ArrayList<ValueLob> lobs;
     private final int maxMemory;
     private int memory;
     private boolean written;
@@ -39,8 +43,9 @@ public class RowList implements AutoCloseable {
      * Construct a new row list for this session.
      *
      * @param session the session
+     * @param table the table
      */
-    public RowList(Session session, Table table) {
+    public RowList(SessionLocal session, Table table) {
         this.session = session;
         this.table = table;
         if (session.getDatabase().isPersistent()) {
@@ -64,21 +69,18 @@ public class RowList implements AutoCloseable {
                 buff.writeByte((byte) 0);
             } else {
                 buff.writeByte((byte) 1);
-                if (DataType.isLargeObject(v.getValueType())) {
-                    // need to keep a reference to temporary lobs,
-                    // otherwise the temp file is deleted
-                    if (v.getSmall() == null && v.getTableId() == 0) {
+                if (v instanceof ValueLob) {
+                    ValueLob lob = (ValueLob) v;
+                    if (lob.getLobData() instanceof LobDataFile) {
+                        // need to keep a reference to temporary lobs,
+                        // otherwise the temp file is deleted
                         if (lobs == null) {
                             lobs = Utils.newSmallArrayList();
                         }
-                        // need to create a copy, otherwise,
-                        // if stored multiple times, it may be renamed
-                        // and then not found
-                        v = v.copyToTemp();
-                        lobs.add(v);
+                        lobs.add(lob);
                     }
                 }
-                buff.checkCapacity(buff.getValueLen(v));
+                buff.checkCapacity(Data.getValueLen(v));
                 buff.writeValue(v);
             }
         }
@@ -91,7 +93,7 @@ public class RowList implements AutoCloseable {
             file = db.openFile(fileName, "rw", false);
             file.setCheckedWriting(false);
             file.seek(FileStore.HEADER_LENGTH);
-            rowBuff = Data.create(db, Constants.DEFAULT_PAGE_SIZE, true);
+            rowBuff = Data.create(db, Constants.DEFAULT_PAGE_SIZE);
             file.seek(FileStore.HEADER_LENGTH);
         }
         Data buff = rowBuff;
@@ -169,17 +171,22 @@ public class RowList implements AutoCloseable {
         int columnCount = buff.readInt();
         long key = buff.readLong();
         Value[] values = new Value[columnCount];
+        Column[] columns = table.getColumns();
         for (int i = 0; i < columnCount; i++) {
             Value v;
             if (buff.readByte() == 0) {
                 v = null;
             } else {
-                v = buff.readValue();
-                if (v.isLinkedToTable()) {
-                    // the table id is 0 if it was linked when writing
-                    // a temporary entry
-                    if (v.getTableId() == 0) {
-                        session.removeAtCommit(v);
+                v = buff.readValue(columns[i].getType());
+                if (v instanceof ValueLob) {
+                    ValueLob lob = (ValueLob) v;
+                    LobData lobData = lob.getLobData();
+                    if (lobData instanceof LobDataDatabase) {
+                        // the table id is 0 if it was linked when writing
+                        // a temporary entry
+                        if (((LobDataDatabase) lobData).getTableId() == 0) {
+                            session.removeAtCommit(lob);
+                        }
                     }
                 }
             }
@@ -197,7 +204,7 @@ public class RowList implements AutoCloseable {
     public Row next() {
         Row r;
         if (file == null) {
-            r = list.get(index++);
+            r = list.get((int) index++);
         } else {
             if (listIndex >= list.size()) {
                 list.clear();
@@ -230,7 +237,7 @@ public class RowList implements AutoCloseable {
      *
      * @return the number of rows
      */
-    public int size() {
+    public long size() {
         return size;
     }
 

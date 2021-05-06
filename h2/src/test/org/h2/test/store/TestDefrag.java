@@ -1,38 +1,40 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.test.store;
 
 import static org.h2.engine.Constants.SUFFIX_MV_FILE;
-import org.h2.test.TestBase;
-import org.h2.test.TestDb;
+
 import java.io.File;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.text.NumberFormat;
 
+import org.h2.test.TestBase;
+import org.h2.test.TestDb;
+
 /**
  * Test off-line compaction procedure used by SHUTDOWN DEFRAG command
  *
  * @author <a href='mailto:andrei.tokar@gmail.com'>Andrei Tokar</a>
  */
-public class TestDefrag  extends TestDb
-{
+public class TestDefrag  extends TestDb {
+
     /**
      * Run just this test.
      *
      * @param a ignored
      */
     public static void main(String... a) throws Exception {
-        TestBase.createCaller().init().test();
+        TestBase.createCaller().init().testFromMain();
     }
 
     @Override
     public boolean isEnabled() {
-        return config.mvStore && !config.memory && config.big && !config.travis;
+        return config.mvStore && !config.memory && config.big && !config.ci;
     }
 
     @Override

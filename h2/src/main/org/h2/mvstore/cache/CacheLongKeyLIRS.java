@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -313,14 +313,7 @@ public class CacheLongKeyLIRS<V> {
      * @return the entry set
      */
     public synchronized Set<Map.Entry<Long, V>> entrySet() {
-        HashMap<Long, V> map = new HashMap<>();
-        for (long k : keySet()) {
-            V value = peek(k);
-            if (value != null) {
-                map.put(k, value);
-            }
-        }
-        return map.entrySet();
+        return getMap().entrySet();
     }
 
     /**

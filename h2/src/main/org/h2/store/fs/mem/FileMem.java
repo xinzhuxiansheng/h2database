@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -8,24 +8,23 @@ package org.h2.store.fs.mem;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
-import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.NonWritableChannelException;
 import org.h2.store.fs.FakeFileChannel;
-import org.h2.store.fs.FileBase;
+import org.h2.store.fs.FileBaseDefault;
 
 /**
  * This class represents an in-memory file.
  */
-class FileMem extends FileBase {
+class FileMem extends FileBaseDefault {
 
     /**
      * The file data.
      */
-    FileMemData data;
+    final FileMemData data;
 
     private final boolean readOnly;
-    private long pos;
+    private volatile boolean closed;
 
     FileMem(FileMemData data, boolean readOnly) {
         this.data = data;
@@ -38,32 +37,27 @@ class FileMem extends FileBase {
     }
 
     @Override
-    public FileChannel truncate(long newLength) throws IOException {
+    protected void implTruncate(long newLength) throws IOException {
         // compatibility with JDK FileChannel#truncate
         if (readOnly) {
             throw new NonWritableChannelException();
         }
-        if (data == null) {
+        if (closed) {
             throw new ClosedChannelException();
         }
         if (newLength < size()) {
             data.touch(readOnly);
-            pos = Math.min(pos, newLength);
             data.truncate(newLength);
         }
-        return this;
-    }
-
-    @Override
-    public FileChannel position(long newPos) {
-        this.pos = newPos;
-        return this;
     }
 
     @Override
     public int write(ByteBuffer src, long position) throws IOException {
-        if (data == null) {
+        if (closed) {
             throw new ClosedChannelException();
+        }
+        if (readOnly) {
+            throw new NonWritableChannelException();
         }
         int len = src.remaining();
         if (len == 0) {
@@ -77,24 +71,8 @@ class FileMem extends FileBase {
     }
 
     @Override
-    public int write(ByteBuffer src) throws IOException {
-        if (data == null) {
-            throw new ClosedChannelException();
-        }
-        int len = src.remaining();
-        if (len == 0) {
-            return 0;
-        }
-        data.touch(readOnly);
-        pos = data.readWrite(pos, src.array(),
-                src.arrayOffset() + src.position(), len, true);
-        src.position(src.position() + len);
-        return len;
-    }
-
-    @Override
     public int read(ByteBuffer dst, long position) throws IOException {
-        if (data == null) {
+        if (closed) {
             throw new ClosedChannelException();
         }
         int len = dst.remaining();
@@ -112,34 +90,8 @@ class FileMem extends FileBase {
     }
 
     @Override
-    public int read(ByteBuffer dst) throws IOException {
-        if (data == null) {
-            throw new ClosedChannelException();
-        }
-        int len = dst.remaining();
-        if (len == 0) {
-            return 0;
-        }
-        long newPos = data.readWrite(pos, dst.array(),
-                dst.arrayOffset() + dst.position(), len, false);
-        len = (int) (newPos - pos);
-        if (len <= 0) {
-            return -1;
-        }
-        dst.position(dst.position() + len);
-        pos = newPos;
-        return len;
-    }
-
-    @Override
-    public long position() {
-        return pos;
-    }
-
-    @Override
     public void implCloseChannel() throws IOException {
-        pos = 0;
-        data = null;
+        closed = true;
     }
 
     @Override
@@ -148,9 +100,9 @@ class FileMem extends FileBase {
     }
 
     @Override
-    public synchronized FileLock tryLock(long position, long size,
+    public FileLock tryLock(long position, long size,
             boolean shared) throws IOException {
-        if (data == null) {
+        if (closed) {
             throw new ClosedChannelException();
         }
         if (shared) {
@@ -179,7 +131,7 @@ class FileMem extends FileBase {
 
     @Override
     public String toString() {
-        return data == null ? "<closed>" : data.getName();
+        return closed ? "<closed>" : data.getName();
     }
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -15,9 +15,8 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.NonWritableChannelException;
 import java.nio.file.Paths;
-import java.util.concurrent.TimeUnit;
 import org.h2.engine.SysProperties;
-import org.h2.store.fs.FileBase;
+import org.h2.store.fs.FileBaseDefault;
 import org.h2.store.fs.FileUtils;
 import org.h2.util.MemoryUnmapper;
 
@@ -25,20 +24,14 @@ import org.h2.util.MemoryUnmapper;
  * Uses memory mapped files.
  * The file size is limited to 2 GB.
  */
-class FileNioMapped extends FileBase {
+class FileNioMapped extends FileBaseDefault {
 
-    private static final long GC_TIMEOUT_MS = 10_000;
+    private static final int GC_TIMEOUT_MS = 10_000;
     private final String name;
     private final MapMode mode;
     private FileChannel channel;
     private MappedByteBuffer mapped;
     private long fileLength;
-
-    /**
-     * The position within the file. Can't use the position of the mapped buffer
-     * because it doesn't support seeking past the end of the file.
-     */
-    private int pos;
 
     FileNioMapped(String fileName, String mode) throws IOException {
         if ("r".equals(mode)) {
@@ -59,7 +52,7 @@ class FileNioMapped extends FileBase {
         mapped.force();
 
         // need to dispose old direct buffer, see bug
-        // https://bugs.java.com/bugdatabase/view_bug.do?bug_id=4724038
+        // https://bugs.openjdk.java.net/browse/JDK-4724038
 
         if (SysProperties.NIO_CLEANER_HACK) {
             if (MemoryUnmapper.unmap(mapped)) {
@@ -69,11 +62,10 @@ class FileNioMapped extends FileBase {
         }
         WeakReference<MappedByteBuffer> bufferWeakRef = new WeakReference<>(mapped);
         mapped = null;
-        long start = System.nanoTime();
+        long stopAt = System.nanoTime() + GC_TIMEOUT_MS * 1_000_000L;
         while (bufferWeakRef.get() != null) {
-            if (System.nanoTime() - start > TimeUnit.MILLISECONDS.toNanos(GC_TIMEOUT_MS)) {
-                throw new IOException("Timeout (" + GC_TIMEOUT_MS
-                        + " ms) reached while trying to GC mapped buffer");
+            if (System.nanoTime() - stopAt > 0L) {
+                throw new IOException("Timeout (" + GC_TIMEOUT_MS + " ms) reached while trying to GC mapped buffer");
             }
             System.gc();
             Thread.yield();
@@ -85,9 +77,7 @@ class FileNioMapped extends FileBase {
      * was created.
      */
     private void reMap() throws IOException {
-        int oldPos = 0;
         if (mapped != null) {
-            oldPos = pos;
             unMap();
         }
         fileLength = channel.size();
@@ -103,7 +93,6 @@ class FileNioMapped extends FileBase {
         if (SysProperties.NIO_LOAD_MAPPED) {
             mapped.load();
         }
-        this.pos = Math.min(oldPos, (int) fileLength);
     }
 
     private static void checkFileSizeLimit(long length) throws IOException {
@@ -123,11 +112,6 @@ class FileNioMapped extends FileBase {
     }
 
     @Override
-    public long position() {
-        return pos;
-    }
-
-    @Override
     public String toString() {
         return "nioMapped:" + name;
     }
@@ -138,7 +122,8 @@ class FileNioMapped extends FileBase {
     }
 
     @Override
-    public synchronized int read(ByteBuffer dst) throws IOException {
+    public synchronized int read(ByteBuffer dst, long pos) throws IOException {
+        checkFileSizeLimit(pos);
         try {
             int len = dst.remaining();
             if (len == 0) {
@@ -148,7 +133,7 @@ class FileNioMapped extends FileBase {
             if (len <= 0) {
                 return -1;
             }
-            mapped.position(pos);
+            mapped.position((int)pos);
             mapped.get(dst.array(), dst.arrayOffset() + dst.position(), len);
             dst.position(dst.position() + len);
             pos += len;
@@ -161,14 +146,7 @@ class FileNioMapped extends FileBase {
     }
 
     @Override
-    public FileChannel position(long pos) throws IOException {
-        checkFileSizeLimit(pos);
-        this.pos = (int) pos;
-        return this;
-    }
-
-    @Override
-    public synchronized FileChannel truncate(long newLength) throws IOException {
+    protected void implTruncate(long newLength) throws IOException {
         // compatibility with JDK FileChannel#truncate
         if (mode == MapMode.READ_ONLY) {
             throw new NonWritableChannelException();
@@ -176,7 +154,6 @@ class FileNioMapped extends FileBase {
         if (newLength < size()) {
             setFileLength(newLength);
         }
-        return this;
     }
 
     public synchronized void setFileLength(long newLength) throws IOException {
@@ -184,7 +161,6 @@ class FileNioMapped extends FileBase {
             throw new NonWritableChannelException();
         }
         checkFileSizeLimit(newLength);
-        int oldPos = pos;
         unMap();
         for (int i = 0;; i++) {
             try {
@@ -203,7 +179,6 @@ class FileNioMapped extends FileBase {
             System.gc();
         }
         reMap();
-        pos = (int) Math.min(newLength, oldPos);
     }
 
     @Override
@@ -213,15 +188,15 @@ class FileNioMapped extends FileBase {
     }
 
     @Override
-    public synchronized int write(ByteBuffer src) throws IOException {
+    public synchronized int write(ByteBuffer src, long position) throws IOException {
+        checkFileSizeLimit(position);
         int len = src.remaining();
         // check if need to expand file
-        if (mapped.capacity() < pos + len) {
-            setFileLength(pos + len);
+        if (mapped.capacity() < position + len) {
+            setFileLength(position + len);
         }
-        mapped.position(pos);
+        mapped.position((int)position);
         mapped.put(src);
-        pos += len;
         return len;
     }
 

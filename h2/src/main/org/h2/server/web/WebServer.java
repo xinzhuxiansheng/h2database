@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -16,7 +16,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.SQLException;
-import java.text.SimpleDateFormat;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -35,7 +37,6 @@ import org.h2.security.SHA256;
 import org.h2.server.Service;
 import org.h2.server.ShutdownHandler;
 import org.h2.store.fs.FileUtils;
-import org.h2.util.DateTimeUtils;
 import org.h2.util.JdbcUtils;
 import org.h2.util.MathUtils;
 import org.h2.util.NetUtils;
@@ -266,10 +267,8 @@ public class WebServer implements Service {
 
     String getStartDateTime() {
         if (startDateTime == null) {
-            SimpleDateFormat format = new SimpleDateFormat(
-                    "EEE, d MMM yyyy HH:mm:ss z", new Locale("en", ""));
-            format.setTimeZone(DateTimeUtils.UTC);
-            startDateTime = format.format(System.currentTimeMillis());
+            startDateTime = DateTimeFormatter.ofPattern("EEE, d MMM yyyy HH:mm:ss z", Locale.ENGLISH)
+                .format(ZonedDateTime.now(ZoneId.of("UTC")));
         }
         return startDateTime;
     }
@@ -379,7 +378,7 @@ public class WebServer implements Service {
         try {
             StringBuilder builder = new StringBuilder(ssl ? "https" : "http").append("://")
                     .append(NetUtils.getLocalAddress()).append(':').append(port);
-            if (key != null) {
+            if (key != null && serverSocket != null) {
                 builder.append("?key=").append(key);
             }
             url = builder.toString();
@@ -774,11 +773,6 @@ public class WebServer implements Service {
             String password, String userKey, NetworkConnectionInfo networkConnectionInfo) throws SQLException {
         driver = driver.trim();
         databaseUrl = databaseUrl.trim();
-        Properties p = new Properties();
-        p.setProperty("user", user.trim());
-        // do not trim the password, otherwise an
-        // encrypted H2 database with empty user password doesn't work
-        p.setProperty("password", password);
         if (databaseUrl.startsWith("jdbc:h2:")) {
             if (!allowSecureCreation || key == null || !key.equals(userKey)) {
                 if (ifExists) {
@@ -786,7 +780,9 @@ public class WebServer implements Service {
                 }
             }
         }
-        return JdbcUtils.getConnection(driver, databaseUrl, p, networkConnectionInfo);
+        // do not trim the password, otherwise an
+        // encrypted H2 database with empty user password doesn't work
+        return JdbcUtils.getConnection(driver, databaseUrl, user.trim(), password, networkConnectionInfo);
     }
 
     /**

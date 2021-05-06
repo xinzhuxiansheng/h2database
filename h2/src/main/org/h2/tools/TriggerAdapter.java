@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -139,10 +139,8 @@ public abstract class TriggerAdapter implements Trigger {
      * @throws SQLException if the operation must be undone
      */
     @Override
-    public void fire(Connection conn, Object[] oldRow, Object[] newRow)
-            throws SQLException {
-        fire(conn, wrap(oldResultSet, oldSource, oldRow),
-                wrap(newResultSet, newSource, newRow));
+    public synchronized void fire(Connection conn, Object[] oldRow, Object[] newRow) throws SQLException {
+        fire(conn, wrap(oldResultSet, oldSource, oldRow), wrap(newResultSet, newSource, newRow));
     }
 
     /**

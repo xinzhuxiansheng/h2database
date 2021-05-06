@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -13,7 +13,6 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.UnknownHostException;
-import java.util.concurrent.TimeUnit;
 
 import org.h2.api.ErrorCode;
 import org.h2.engine.SysProperties;
@@ -132,8 +131,7 @@ public class NetUtils {
                         SysProperties.SOCKET_CONNECT_TIMEOUT);
                 return socket;
             } catch (IOException e) {
-                if (System.nanoTime() - start >=
-                        TimeUnit.MILLISECONDS.toNanos(SysProperties.SOCKET_CONNECT_TIMEOUT)) {
+                if (System.nanoTime() - start >= SysProperties.SOCKET_CONNECT_TIMEOUT * 1_000_000L) {
                     // either it was a connect timeout,
                     // or list of different exceptions
                     throw e;
@@ -260,10 +258,8 @@ public class NetUtils {
      */
     public static synchronized String getLocalAddress() {
         long now = System.nanoTime();
-        if (cachedLocalAddress != null) {
-            if (cachedLocalAddressTime + TimeUnit.MILLISECONDS.toNanos(CACHE_MILLIS) > now) {
-                return cachedLocalAddress;
-            }
+        if (cachedLocalAddress != null && now - cachedLocalAddressTime < CACHE_MILLIS * 1_000_000L) {
+            return cachedLocalAddress;
         }
         InetAddress bind = null;
         boolean useLocalhost = false;

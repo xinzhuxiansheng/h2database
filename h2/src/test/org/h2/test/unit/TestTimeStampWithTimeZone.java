@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -19,6 +19,10 @@ import org.h2.engine.CastDataProvider;
 import org.h2.test.TestBase;
 import org.h2.test.TestDb;
 import org.h2.util.DateTimeUtils;
+import org.h2.util.JSR310Utils;
+import org.h2.util.LegacyDateTimeUtils;
+import org.h2.util.TimeZoneProvider;
+import org.h2.value.TypeInfo;
 import org.h2.value.Value;
 import org.h2.value.ValueDate;
 import org.h2.value.ValueTime;
@@ -35,7 +39,7 @@ public class TestTimeStampWithTimeZone extends TestDb {
      * @param a ignored
      */
     public static void main(String... a) throws Exception {
-        TestBase.createCaller().init().test();
+        TestBase.createCaller().init().testFromMain();
     }
 
     @Override
@@ -118,8 +122,8 @@ public class TestTimeStampWithTimeZone extends TestDb {
     }
 
     private void test2() {
-        ValueTimestampTimeZone a = ValueTimestampTimeZone.parse("1970-01-01 12:00:00.00+00:15");
-        ValueTimestampTimeZone b = ValueTimestampTimeZone.parse("1970-01-01 12:00:01.00+01:15");
+        ValueTimestampTimeZone a = ValueTimestampTimeZone.parse("1970-01-01 12:00:00.00+00:15", null);
+        ValueTimestampTimeZone b = ValueTimestampTimeZone.parse("1970-01-01 12:00:01.00+01:15", null);
         int c = a.compareTo(b, null, null);
         assertEquals(1, c);
         c = b.compareTo(a, null, null);
@@ -127,8 +131,8 @@ public class TestTimeStampWithTimeZone extends TestDb {
     }
 
     private void test3() {
-        ValueTimestampTimeZone a = ValueTimestampTimeZone.parse("1970-01-02 00:00:02.00+01:15");
-        ValueTimestampTimeZone b = ValueTimestampTimeZone.parse("1970-01-01 23:00:01.00+00:15");
+        ValueTimestampTimeZone a = ValueTimestampTimeZone.parse("1970-01-02 00:00:02.00+01:15", null);
+        ValueTimestampTimeZone b = ValueTimestampTimeZone.parse("1970-01-01 23:00:01.00+00:15", null);
         int c = a.compareTo(b, null, null);
         assertEquals(1, c);
         c = b.compareTo(a, null, null);
@@ -136,8 +140,8 @@ public class TestTimeStampWithTimeZone extends TestDb {
     }
 
     private void test4() {
-        ValueTimestampTimeZone a = ValueTimestampTimeZone.parse("1970-01-02 00:00:01.00+01:15");
-        ValueTimestampTimeZone b = ValueTimestampTimeZone.parse("1970-01-01 23:00:01.00+00:15");
+        ValueTimestampTimeZone a = ValueTimestampTimeZone.parse("1970-01-02 00:00:01.00+01:15", null);
+        ValueTimestampTimeZone b = ValueTimestampTimeZone.parse("1970-01-01 23:00:01.00+00:15", null);
         int c = a.compareTo(b, null, null);
         assertEquals(0, c);
         c = b.compareTo(a, null, null);
@@ -154,8 +158,8 @@ public class TestTimeStampWithTimeZone extends TestDb {
         PreparedStatement preparedStatement = conn.prepareStatement("select id"
                         + " from test5"
                         + " where (t1 < ?)");
-        Value value = ValueTimestampTimeZone.parse("2016-12-24 00:00:00.000000001+00:01");
-        preparedStatement.setObject(1, value.getObject());
+        Value value = ValueTimestampTimeZone.parse("2016-12-24 00:00:00.000000001+00:01", null);
+        preparedStatement.setObject(1, JSR310Utils.valueToOffsetDateTime(value, null));
 
         ResultSet rs = preparedStatement.executeQuery();
 
@@ -182,20 +186,23 @@ public class TestTimeStampWithTimeZone extends TestDb {
     }
 
     private void testConversionsImpl(String timeStr, boolean testReverse, CastDataProvider provider) {
-        ValueTimestamp ts = ValueTimestamp.parse(timeStr);
-        ValueDate d = (ValueDate) ts.convertTo(Value.DATE);
-        ValueTime t = (ValueTime) ts.convertTo(Value.TIME);
-        ValueTimestampTimeZone tstz = ValueTimestampTimeZone.parse(timeStr);
-        assertEquals(ts, tstz.convertTo(Value.TIMESTAMP));
-        assertEquals(d, tstz.convertTo(Value.DATE));
-        assertEquals(t, tstz.convertTo(Value.TIME));
-        assertEquals(ts.getTimestamp(provider, null), tstz.getTimestamp(provider, null));
+        ValueTimestamp ts = ValueTimestamp.parse(timeStr, null);
+        ValueDate d = ts.convertToDate(provider);
+        ValueTime t = (ValueTime) ts.convertTo(TypeInfo.TYPE_TIME, provider);
+        ValueTimestampTimeZone tstz = ValueTimestampTimeZone.parse(timeStr, null);
+        assertEquals(ts, tstz.convertTo(TypeInfo.TYPE_TIMESTAMP, provider));
+        assertEquals(d, tstz.convertToDate(provider));
+        assertEquals(t, tstz.convertTo(TypeInfo.TYPE_TIME, provider));
+        assertEquals(LegacyDateTimeUtils.toTimestamp(provider, null, ts),
+                LegacyDateTimeUtils.toTimestamp(provider, null, tstz));
         if (testReverse) {
-            assertEquals(0, tstz.compareTo(ts.convertTo(Value.TIMESTAMP_TZ), null, null));
-            assertEquals(d.convertTo(Value.TIMESTAMP).convertTo(Value.TIMESTAMP_TZ),
-                    d.convertTo(Value.TIMESTAMP_TZ));
-            assertEquals(t.convertTo(Value.TIMESTAMP, provider, false).convertTo(Value.TIMESTAMP_TZ),
-                    t.convertTo(Value.TIMESTAMP_TZ, provider, false));
+            assertEquals(0, tstz.compareTo(ts.convertTo(TypeInfo.TYPE_TIMESTAMP_TZ, provider), null, null));
+            assertEquals(d.convertTo(TypeInfo.TYPE_TIMESTAMP, provider)
+                    .convertTo(TypeInfo.TYPE_TIMESTAMP_TZ, provider),
+                    d.convertTo(TypeInfo.TYPE_TIMESTAMP_TZ, provider));
+            assertEquals(t.convertTo(TypeInfo.TYPE_TIMESTAMP, provider)
+                    .convertTo(TypeInfo.TYPE_TIMESTAMP_TZ, provider),
+                    t.convertTo(TypeInfo.TYPE_TIMESTAMP_TZ, provider));
         }
     }
 
@@ -204,7 +211,11 @@ public class TestTimeStampWithTimeZone extends TestDb {
         TimeZone current = TimeZone.getDefault();
         try {
             for (String id : TimeZone.getAvailableIDs()) {
+                if (id.equals("GMT0")) {
+                    continue;
+                }
                 TimeZone.setDefault(TimeZone.getTimeZone(id));
+                provider.currentTimeZone = TimeZoneProvider.ofId(id);
                 DateTimeUtils.resetCalendar();
                 testConversionsImpl("2017-12-05 23:59:30.987654321-12:00", true, provider);
                 testConversionsImpl("2000-01-02 10:20:30.123456789+07:30", true, provider);

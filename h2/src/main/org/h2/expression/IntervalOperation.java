@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -19,20 +19,18 @@ import java.math.BigInteger;
 
 import org.h2.api.ErrorCode;
 import org.h2.api.IntervalQualifier;
-import org.h2.engine.Session;
-import org.h2.expression.function.DateTimeFunctions;
+import org.h2.engine.SessionLocal;
+import org.h2.expression.function.DateTimeFunction;
 import org.h2.message.DbException;
-import org.h2.table.ColumnResolver;
-import org.h2.table.TableFilter;
 import org.h2.util.DateTimeUtils;
 import org.h2.util.IntervalUtils;
 import org.h2.value.DataType;
 import org.h2.value.TypeInfo;
 import org.h2.value.Value;
 import org.h2.value.ValueDate;
-import org.h2.value.ValueDecimal;
 import org.h2.value.ValueInterval;
 import org.h2.value.ValueNull;
+import org.h2.value.ValueNumeric;
 import org.h2.value.ValueTime;
 import org.h2.value.ValueTimeTimeZone;
 import org.h2.value.ValueTimestampTimeZone;
@@ -40,7 +38,7 @@ import org.h2.value.ValueTimestampTimeZone;
 /**
  * A mathematical operation with intervals.
  */
-public class IntervalOperation extends Expression {
+public class IntervalOperation extends Operation2 {
 
     public enum IntervalOpType {
         /**
@@ -96,18 +94,17 @@ public class IntervalOperation extends Expression {
      */
     private static final int INTERVAL_DAY_DIGITS = 32;
 
-    private static final TypeInfo INTERVAL_DIVIDE_INTERVAL_YEAR_TYPE = TypeInfo.getTypeInfo(Value.DECIMAL,
+    private static final TypeInfo INTERVAL_DIVIDE_INTERVAL_YEAR_TYPE = TypeInfo.getTypeInfo(Value.NUMERIC,
             INTERVAL_YEAR_DIGITS * 3, INTERVAL_YEAR_DIGITS * 2, null);
 
-    private static final TypeInfo INTERVAL_DIVIDE_INTERVAL_DAY_TYPE = TypeInfo.getTypeInfo(Value.DECIMAL,
+    private static final TypeInfo INTERVAL_DIVIDE_INTERVAL_DAY_TYPE = TypeInfo.getTypeInfo(Value.NUMERIC,
             INTERVAL_DAY_DIGITS * 3, INTERVAL_DAY_DIGITS * 2, null);
 
     private final IntervalOpType opType;
-    private Expression left, right;
-    private TypeInfo forcedType;
-    private TypeInfo type;
 
-    private static BigInteger nanosFromValue(Session session, Value v) {
+    private TypeInfo forcedType;
+
+    private static BigInteger nanosFromValue(SessionLocal session, Value v) {
         long[] a = dateAndTimeFromValue(v, session);
         return BigInteger.valueOf(absoluteDayFromDateValue(a[0])).multiply(NANOS_PER_DAY_BI)
                 .add(BigInteger.valueOf(a[1]));
@@ -119,9 +116,8 @@ public class IntervalOperation extends Expression {
     }
 
     public IntervalOperation(IntervalOpType opType, Expression left, Expression right) {
+        super(left, right);
         this.opType = opType;
-        this.left = left;
-        this.right = right;
         int l = left.getType().getValueType(), r = right.getType().getValueType();
         switch (opType) {
         case INTERVAL_PLUS_INTERVAL:
@@ -129,7 +125,7 @@ public class IntervalOperation extends Expression {
             type = TypeInfo.getTypeInfo(Value.getHigherOrder(l, r));
             break;
         case INTERVAL_DIVIDE_INTERVAL:
-            type = DataType.isYearMonthIntervalType(left.getType().getValueType()) ? INTERVAL_DIVIDE_INTERVAL_YEAR_TYPE
+            type = DataType.isYearMonthIntervalType(l) ? INTERVAL_DIVIDE_INTERVAL_YEAR_TYPE
                     : INTERVAL_DIVIDE_INTERVAL_DAY_TYPE;
             break;
         case DATETIME_PLUS_INTERVAL:
@@ -140,8 +136,7 @@ public class IntervalOperation extends Expression {
             break;
         case DATETIME_MINUS_DATETIME:
             if (forcedType != null) {
-                type = TypeInfo.getTypeInfo(forcedType.getValueType(), ValueInterval.MAXIMUM_PRECISION,
-                        forcedType.getScale(), null);
+                type = forcedType;
             } else if ((l == Value.TIME || l == Value.TIME_TZ) && (r == Value.TIME || r == Value.TIME_TZ)) {
                 type = TypeInfo.TYPE_INTERVAL_HOUR_TO_SECOND;
             } else if (l == Value.DATE && r == Value.DATE) {
@@ -153,14 +148,24 @@ public class IntervalOperation extends Expression {
     }
 
     @Override
-    public StringBuilder getSQL(StringBuilder builder, boolean alwaysQuote) {
-        builder.append('(');
-        left.getSQL(builder, alwaysQuote).append(' ').append(getOperationToken()).append(' ');
-        right.getSQL(builder, alwaysQuote).append(')');
+    public boolean needParentheses() {
+        return forcedType == null;
+    }
+
+    @Override
+    public StringBuilder getUnenclosedSQL(StringBuilder builder, int sqlFlags) {
         if (forcedType != null) {
-            getForcedTypeSQL(builder.append(' '), forcedType);
+            getInnerSQL2(builder.append('('), sqlFlags);
+            getForcedTypeSQL(builder.append(") "), forcedType);
+        } else {
+            getInnerSQL2(builder, sqlFlags);
         }
         return builder;
+    }
+
+    private void getInnerSQL2(StringBuilder builder, int sqlFlags) {
+        left.getSQL(builder, sqlFlags, AUTO_PARENTHESES).append(' ').append(getOperationToken()).append(' ');
+        right.getSQL(builder, sqlFlags, AUTO_PARENTHESES);
     }
 
     static StringBuilder getForcedTypeSQL(StringBuilder builder, TypeInfo forcedType) {
@@ -186,12 +191,12 @@ public class IntervalOperation extends Expression {
         case INTERVAL_DIVIDE_NUMERIC:
             return '/';
         default:
-            throw DbException.throwInternalError("opType=" + opType);
+            throw DbException.getInternalError("opType=" + opType);
         }
     }
 
     @Override
-    public Value getValue(Session session) {
+    public Value getValue(SessionLocal session) {
         Value l = left.getValue(session);
         Value r = right.getValue(session);
         if (l == ValueNull.INSTANCE || r == ValueNull.INSTANCE) {
@@ -208,9 +213,8 @@ public class IntervalOperation extends Expression {
                     opType == IntervalOpType.INTERVAL_PLUS_INTERVAL ? a1.add(a2) : a1.subtract(a2));
         }
         case INTERVAL_DIVIDE_INTERVAL:
-            return ValueDecimal.get(IntervalUtils.intervalToAbsolute((ValueInterval) l)).divide(
-                    ValueDecimal.get(IntervalUtils.intervalToAbsolute((ValueInterval) r)),
-                    DataType.isYearMonthIntervalType(l.getValueType()) ? INTERVAL_YEAR_DIGITS : INTERVAL_DAY_DIGITS);
+            return ValueNumeric.get(IntervalUtils.intervalToAbsolute((ValueInterval) l))
+                    .divide(ValueNumeric.get(IntervalUtils.intervalToAbsolute((ValueInterval) r)), type);
         case DATETIME_PLUS_INTERVAL:
         case DATETIME_MINUS_INTERVAL:
             return getDateTimeWithInterval(session, l, r, lType, rType);
@@ -229,8 +233,8 @@ public class IntervalOperation extends Expression {
                 if (lType == Value.TIME && rType == Value.TIME) {
                     diff = ((ValueTime) l).getNanos() - ((ValueTime) r).getNanos();
                 } else {
-                    ValueTimeTimeZone left = (ValueTimeTimeZone) l.convertTo(Value.TIME_TZ, session, false),
-                            right = (ValueTimeTimeZone) r.convertTo(Value.TIME_TZ, session, false);
+                    ValueTimeTimeZone left = (ValueTimeTimeZone) l.convertTo(TypeInfo.TYPE_TIME_TZ, session),
+                            right = (ValueTimeTimeZone) r.convertTo(TypeInfo.TYPE_TIME_TZ, session);
                     diff = left.getNanos() - right.getNanos()
                             + (right.getTimeZoneOffsetSeconds() - left.getTimeZoneOffsetSeconds())
                             * DateTimeUtils.NANOS_PER_SECOND;
@@ -241,6 +245,34 @@ public class IntervalOperation extends Expression {
                 }
                 result = ValueInterval.from(IntervalQualifier.HOUR_TO_SECOND, negative, diff / NANOS_PER_HOUR,
                         diff % NANOS_PER_HOUR);
+            } else if (forcedType != null && DataType.isYearMonthIntervalType(forcedType.getValueType())) {
+                long[] dt1 = dateAndTimeFromValue(l, session), dt2 = dateAndTimeFromValue(r, session);
+                long dateValue1 = lType == Value.TIME || lType == Value.TIME_TZ
+                        ? session.currentTimestamp().getDateValue()
+                        : dt1[0];
+                long dateValue2 = rType == Value.TIME || rType == Value.TIME_TZ
+                        ? session.currentTimestamp().getDateValue()
+                        : dt2[0];
+                long leading = 12L
+                        * (DateTimeUtils.yearFromDateValue(dateValue1) - DateTimeUtils.yearFromDateValue(dateValue2))
+                        + DateTimeUtils.monthFromDateValue(dateValue1) - DateTimeUtils.monthFromDateValue(dateValue2);
+                int d1 = DateTimeUtils.dayFromDateValue(dateValue1);
+                int d2 = DateTimeUtils.dayFromDateValue(dateValue2);
+                if (leading >= 0) {
+                    if (d1 < d2 || d1 == d2 && dt1[1] < dt2[1]) {
+                        leading--;
+                    }
+                } else if (d1 > d2 || d1 == d2 && dt1[1] > dt2[1]) {
+                    leading++;
+                }
+                boolean negative;
+                if (leading < 0) {
+                    negative = true;
+                    leading = -leading;
+                } else {
+                    negative = false;
+                }
+                result = ValueInterval.from(IntervalQualifier.MONTH, negative, leading, 0L);
             } else if (lType == Value.DATE && rType == Value.DATE) {
                 long diff = absoluteDayFromDateValue(((ValueDate) l).getDateValue())
                         - absoluteDayFromDateValue(((ValueDate) r).getDateValue());
@@ -252,32 +284,32 @@ public class IntervalOperation extends Expression {
             } else {
                 BigInteger diff = nanosFromValue(session, l).subtract(nanosFromValue(session, r));
                 if (lType == Value.TIMESTAMP_TZ || rType == Value.TIMESTAMP_TZ) {
-                    l = l.convertTo(Value.TIMESTAMP_TZ, session, false);
-                    r = r.convertTo(Value.TIMESTAMP_TZ, session, false);
+                    l = l.convertTo(TypeInfo.TYPE_TIMESTAMP_TZ, session);
+                    r = r.convertTo(TypeInfo.TYPE_TIMESTAMP_TZ, session);
                     diff = diff.add(BigInteger.valueOf((((ValueTimestampTimeZone) r).getTimeZoneOffsetSeconds()
                             - ((ValueTimestampTimeZone) l).getTimeZoneOffsetSeconds()) * NANOS_PER_SECOND));
                 }
                 result = IntervalUtils.intervalFromAbsolute(IntervalQualifier.DAY_TO_SECOND, diff);
             }
             if (forcedType != null) {
-                result = result.convertTo(forcedType.getValueType()).convertScale(true, forcedType.getScale());
+                result = result.castTo(forcedType, session);
             }
             return result;
         }
         }
-        throw DbException.throwInternalError("type=" + opType);
+        throw DbException.getInternalError("type=" + opType);
     }
 
-    private Value getDateTimeWithInterval(Session session, Value l, Value r, int lType, int rType) {
+    private Value getDateTimeWithInterval(SessionLocal session, Value l, Value r, int lType, int rType) {
         switch (lType) {
         case Value.TIME:
             if (DataType.isYearMonthIntervalType(rType)) {
-                throw DbException.throwInternalError("type=" + rType);
+                throw DbException.getInternalError("type=" + rType);
             }
             return ValueTime.fromNanos(getTimeWithInterval(r, ((ValueTime) l).getNanos()));
         case Value.TIME_TZ: {
             if (DataType.isYearMonthIntervalType(rType)) {
-                throw DbException.throwInternalError("type=" + rType);
+                throw DbException.getInternalError("type=" + rType);
             }
             ValueTimeTimeZone t = (ValueTimeTimeZone) l;
             return ValueTimeTimeZone.fromNanos(getTimeWithInterval(r, t.getNanos()), t.getTimeZoneOffsetSeconds());
@@ -290,7 +322,7 @@ public class IntervalOperation extends Expression {
                 if (opType == IntervalOpType.DATETIME_MINUS_INTERVAL) {
                     m = -m;
                 }
-                return DateTimeFunctions.dateadd(session, "MONTH", m, l);
+                return DateTimeFunction.dateadd(session, DateTimeFunction.MONTH, m, l);
             } else {
                 BigInteger a2 = IntervalUtils.intervalToAbsolute((ValueInterval) r);
                 if (lType == Value.DATE) {
@@ -321,7 +353,7 @@ public class IntervalOperation extends Expression {
                 }
             }
         }
-        throw DbException.throwInternalError("type=" + opType);
+        throw DbException.getInternalError("type=" + opType);
     }
 
     private long getTimeWithInterval(Value r, long nanos) {
@@ -336,65 +368,13 @@ public class IntervalOperation extends Expression {
     }
 
     @Override
-    public void mapColumns(ColumnResolver resolver, int level, int state) {
-        left.mapColumns(resolver, level, state);
-        if (right != null) {
-            right.mapColumns(resolver, level, state);
-        }
-    }
-
-    @Override
-    public Expression optimize(Session session) {
+    public Expression optimize(SessionLocal session) {
         left = left.optimize(session);
         right = right.optimize(session);
         if (left.isConstant() && right.isConstant()) {
             return ValueExpression.get(getValue(session));
         }
         return this;
-    }
-
-    @Override
-    public void setEvaluatable(TableFilter tableFilter, boolean b) {
-        left.setEvaluatable(tableFilter, b);
-        right.setEvaluatable(tableFilter, b);
-    }
-
-    @Override
-    public TypeInfo getType() {
-        return type;
-    }
-
-    @Override
-    public void updateAggregate(Session session, int stage) {
-        left.updateAggregate(session, stage);
-        right.updateAggregate(session, stage);
-    }
-
-    @Override
-    public boolean isEverything(ExpressionVisitor visitor) {
-        return left.isEverything(visitor) && right.isEverything(visitor);
-    }
-
-    @Override
-    public int getCost() {
-        return left.getCost() + 1 + right.getCost();
-    }
-
-    @Override
-    public int getSubexpressionCount() {
-        return 2;
-    }
-
-    @Override
-    public Expression getSubexpression(int index) {
-        switch (index) {
-        case 0:
-            return left;
-        case 1:
-            return right;
-        default:
-            throw new IndexOutOfBoundsException();
-        }
     }
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -22,7 +22,7 @@ import org.h2.value.Value;
 public class Mode {
 
     public enum ModeEnum {
-        REGULAR, DB2, Derby, MSSQLServer, HSQLDB, MySQL, Oracle, PostgreSQL
+        REGULAR, DB2, Derby, MariaDB, MSSQLServer, HSQLDB, MySQL, Oracle, PostgreSQL
     }
 
     /**
@@ -47,6 +47,84 @@ public class Mode {
          * unique index.
          */
         FORBID_ANY_DUPLICATES
+    }
+
+    /**
+     * Generation of column names for expressions.
+     */
+    public enum ExpressionNames {
+        /**
+         * Use optimized SQL representation of expression.
+         */
+        OPTIMIZED_SQL,
+
+        /**
+         * Use original SQL representation of expression.
+         */
+        ORIGINAL_SQL,
+
+        /**
+         * Generate empty name.
+         */
+        EMPTY,
+
+        /**
+         * Use ordinal number of a column.
+         */
+        NUMBER,
+
+        /**
+         * Use ordinal number of a column with C prefix.
+         */
+        C_NUMBER,
+
+        /**
+         * Use function name for functions and ?column? for other expressions
+         */
+        POSTGRESQL_STYLE,
+    }
+
+    /**
+     * Generation of column names for expressions to be used in a view.
+     */
+    public enum ViewExpressionNames {
+        /**
+         * Use both specified and generated names as is.
+         */
+        AS_IS,
+
+        /**
+         * Throw exception for unspecified names.
+         */
+        EXCEPTION,
+
+        /**
+         * Use both specified and generated names as is, but replace too long
+         * generated names with {@code Name_exp_###}.
+         */
+        MYSQL_STYLE,
+    }
+
+    /**
+     * When CHAR values are right-padded with spaces.
+     */
+    public enum CharPadding {
+        /**
+         * CHAR values are always right-padded with spaces.
+         */
+        ALWAYS,
+
+        /**
+         * Spaces are trimmed from the right side of CHAR values, but CHAR
+         * values in result sets are right-padded with spaces to the declared
+         * length
+         */
+        IN_RESULT_SETS,
+
+        /**
+         * Spaces are trimmed from the right side of CHAR values.
+         */
+        NEVER
     }
 
     private static final HashMap<String, Mode> MODES = new HashMap<>();
@@ -77,19 +155,12 @@ public class Mode {
     public boolean indexDefinitionInCreateTable;
 
     /**
-     * Concatenation with NULL results in NULL. Usually, NULL is treated as an
-     * empty string if only one of the operands is NULL, and NULL is only
-     * returned if both operands are NULL.
-     */
-    public boolean nullConcatIsNull;
-
-    /**
      * Identifiers may be quoted using square brackets as in [Test].
      */
     public boolean squareBracketQuotedNames;
 
     /**
-     * The system columns 'CTID' and 'OID' are supported.
+     * The system columns 'ctid' and 'oid' are supported.
      */
     public boolean systemColumns;
 
@@ -128,11 +199,6 @@ public class Mode {
      * The function REGEXP_REPLACE() uses \ for back-references.
      */
     public boolean regexpReplaceBackslashReferences;
-
-    /**
-     * SERIAL and BIGSERIAL columns are not automatically primary keys.
-     */
-    public boolean serialColumnIsNotPK;
 
     /**
      * Swap the parameters of the CONVERT function.
@@ -176,9 +242,9 @@ public class Mode {
     public boolean allowEmptyInPredicate;
 
     /**
-     * Whether to right-pad fixed strings with spaces.
+     * How to pad or trim CHAR values.
      */
-    public boolean padFixedLengthStrings;
+    public CharPadding charPadding = CharPadding.ALWAYS;
 
     /**
      * Whether DB2 TIMESTAMP formats are allowed.
@@ -189,16 +255,6 @@ public class Mode {
      * Discard SQLServer table hints (e.g. "SELECT * FROM table WITH (NOLOCK)")
      */
     public boolean discardWithTableHints;
-
-    /**
-     * Use "IDENTITY" as an alias for "auto_increment" (SQLServer style)
-     */
-    public boolean useIdentityAsAutoIncrement;
-
-    /**
-     * Convert (VAR)CHAR to VAR(BINARY) and vice versa with UTF-8 encoding instead of HEX.
-     */
-    public boolean charToBinaryInUtf8;
 
     /**
      * If {@code true}, datetime value function return the same value within a
@@ -260,6 +316,109 @@ public class Mode {
     public boolean forBitData;
 
     /**
+     * If {@code true} 'CHAR' and 'BYTE' length units are allowed.
+     */
+    public boolean charAndByteLengthUnits;
+
+    /**
+     * If {@code true}, sequence.NEXTVAL and sequence.CURRVAL pseudo columns are
+     * supported.
+     */
+    public boolean nextvalAndCurrvalPseudoColumns;
+
+    /**
+     * If {@code true}, the next value expression returns different values when
+     * invoked multiple times within a row. This setting does not affect
+     * NEXTVAL() function.
+     */
+    public boolean nextValueReturnsDifferentValues;
+
+    /**
+     * If {@code true}, sequences of generated by default identity columns are
+     * updated when value is provided by user.
+     */
+    public boolean updateSequenceOnManualIdentityInsertion;
+
+    /**
+     * If {@code true}, last identity of the session is updated on insertion of
+     * a new value into identity column.
+     */
+    public boolean takeInsertedIdentity;
+
+    /**
+     * If {@code true}, last identity of the session is updated on generation of
+     * a new sequence value.
+     */
+    public boolean takeGeneratedSequenceValue;
+
+    /**
+     * If {@code true}, identity columns have DEFAULT ON NULL clause.
+     */
+    public boolean identityColumnsHaveDefaultOnNull;
+
+    /**
+     * If {@code true}, merge when matched clause may have WHERE clause.
+     */
+    public boolean mergeWhere;
+
+    /**
+     * If {@code true}, allow using from clause in update statement.
+     */
+    public boolean allowUsingFromClauseInUpdateStatement;
+
+    /**
+     * If {@code true}, referential constraints will create a unique constraint
+     * on referenced columns if it doesn't exist instead of throwing an
+     * exception.
+     */
+    public boolean createUniqueConstraintForReferencedColumns;
+
+    /**
+     * How column names are generated for expressions.
+     */
+    public ExpressionNames expressionNames = ExpressionNames.OPTIMIZED_SQL;
+
+    /**
+     * How column names are generated for views.
+     */
+    public ViewExpressionNames viewExpressionNames = ViewExpressionNames.AS_IS;
+
+    /**
+     * Whether TOP clause in SELECT queries is supported.
+     */
+    public boolean topInSelect;
+
+    /**
+     * Whether TOP clause in DML commands is supported.
+     */
+    public boolean topInDML;
+
+    /**
+     * Whether LIMIT / OFFSET clauses are supported.
+     */
+    public boolean limit;
+
+    /**
+     * Whether IDENTITY pseudo data type is supported.
+     */
+    public boolean identityDataType;
+
+    /**
+     * Whether SERIAL and BIGSERIAL pseudo data types are supported.
+     */
+    public boolean serialDataTypes;
+
+    /**
+     * Whether SQL Server-style IDENTITY clause is supported.
+     */
+    public boolean identityClause;
+
+    /**
+     * Whether MySQL-style AUTO_INCREMENT clause is supported.
+     */
+    public boolean autoIncrementClause;
+
+    /**
      * An optional Set of hidden/disallowed column types.
      * Certain DBMSs don't support all column types provided by H2, such as
      * "NUMBER" when using PostgreSQL mode.
@@ -271,15 +430,23 @@ public class Mode {
      */
     public HashMap<String, DataType> typeByNameMap = new HashMap<>();
 
+    /**
+     * Allow to use GROUP BY n, where n is column index in the SELECT list, similar to ORDER BY
+     */
+    public boolean groupByColumnIndex;
+
     private final String name;
 
     private final ModeEnum modeEnum;
 
     static {
         Mode mode = new Mode(ModeEnum.REGULAR);
-        mode.nullConcatIsNull = true;
         mode.allowEmptyInPredicate = true;
         mode.dateTimeValueWithinTransaction = true;
+        mode.topInSelect = true;
+        mode.limit = true;
+        mode.identityDataType = true;
+        mode.autoIncrementClause = true;
         add(mode);
 
         mode = new Mode(ModeEnum.DB2);
@@ -294,6 +461,10 @@ public class Mode {
                         "ClientUser|ClientCorrelationToken");
         mode.allowDB2TimestampFormat = true;
         mode.forBitData = true;
+        mode.takeInsertedIdentity = true;
+        mode.expressionNames = ExpressionNames.NUMBER;
+        mode.viewExpressionNames = ViewExpressionNames.EXCEPTION;
+        mode.limit = true;
         add(mode);
 
         mode = new Mode(ModeEnum.Derby);
@@ -304,14 +475,20 @@ public class Mode {
         // Derby does not support client info properties as of version 10.12.1.1
         mode.supportedClientInfoPropertiesRegEx = null;
         mode.forBitData = true;
+        mode.takeInsertedIdentity = true;
+        mode.expressionNames = ExpressionNames.NUMBER;
+        mode.viewExpressionNames = ViewExpressionNames.EXCEPTION;
         add(mode);
 
         mode = new Mode(ModeEnum.HSQLDB);
-        mode.nullConcatIsNull = true;
         mode.allowPlusForStringConcat = true;
+        mode.identityColumnsHaveDefaultOnNull = true;
         // HSQLDB does not support client info properties. See
         // http://hsqldb.org/doc/apidocs/org/hsqldb/jdbc/JDBCConnection.html#setClientInfo-java.lang.String-java.lang.String-
         mode.supportedClientInfoPropertiesRegEx = null;
+        mode.expressionNames = ExpressionNames.C_NUMBER;
+        mode.topInSelect = true;
+        mode.limit = true;
         add(mode);
 
         mode = new Mode(ModeEnum.MSSQLServer);
@@ -323,42 +500,82 @@ public class Mode {
         mode.swapConvertFunctionParameters = true;
         mode.supportPoundSymbolForColumnNames = true;
         mode.discardWithTableHints = true;
-        mode.useIdentityAsAutoIncrement = true;
         // MS SQL Server does not support client info properties. See
         // https://msdn.microsoft.com/en-Us/library/dd571296%28v=sql.110%29.aspx
         mode.supportedClientInfoPropertiesRegEx = null;
         mode.zeroExLiteralsAreBinaryStrings = true;
         mode.truncateTableRestartIdentity = true;
-        DataType dt = DataType.createNumeric(19, 4, false);
-        dt.type = Value.DECIMAL;
+        mode.takeInsertedIdentity = true;
+        DataType dt = DataType.createNumeric(19, 4);
+        dt.type = Value.NUMERIC;
         dt.sqlType = Types.NUMERIC;
-        dt.name = "MONEY";
+        dt.specialPrecisionScale = true;
         mode.typeByNameMap.put("MONEY", dt);
-        dt = DataType.createNumeric(10, 4, false);
-        dt.type = Value.DECIMAL;
+        dt = DataType.createNumeric(10, 4);
+        dt.type = Value.NUMERIC;
         dt.sqlType = Types.NUMERIC;
-        dt.name = "SMALLMONEY";
+        dt.specialPrecisionScale = true;
         mode.typeByNameMap.put("SMALLMONEY", dt);
+        mode.typeByNameMap.put("UNIQUEIDENTIFIER", DataType.getDataType(Value.UUID));
         mode.allowEmptySchemaValuesAsDefaultSchema = true;
+        mode.expressionNames = ExpressionNames.EMPTY;
+        mode.viewExpressionNames = ViewExpressionNames.EXCEPTION;
+        mode.topInSelect = true;
+        mode.topInDML = true;
+        mode.identityClause = true;
         add(mode);
 
-        mode = new Mode(ModeEnum.MySQL);
+        mode = new Mode(ModeEnum.MariaDB);
         mode.indexDefinitionInCreateTable = true;
-        // Next one is for MariaDB
         mode.regexpReplaceBackslashReferences = true;
         mode.onDuplicateKeyUpdate = true;
         mode.replaceInto = true;
-        // MySQL allows to use any key for client info entries. See
-        // https://github.com/mysql/mysql-connector-j/blob/5.1.47/src/com/mysql/jdbc/JDBC4CommentClientInfoProvider.java
-        mode.supportedClientInfoPropertiesRegEx =
-                Pattern.compile(".*");
-        mode.charToBinaryInUtf8 = true;
+        mode.charPadding = CharPadding.NEVER;
+        mode.supportedClientInfoPropertiesRegEx = Pattern.compile(".*");
         mode.zeroExLiteralsAreBinaryStrings = true;
         mode.allowUnrelatedOrderByExpressionsInDistinctQueries = true;
         mode.alterTableExtensionsMySQL = true;
         mode.alterTableModifyColumn = true;
         mode.truncateTableRestartIdentity = true;
         mode.allNumericTypesHavePrecision = true;
+        mode.nextValueReturnsDifferentValues = true;
+        mode.updateSequenceOnManualIdentityInsertion = true;
+        mode.takeInsertedIdentity = true;
+        mode.identityColumnsHaveDefaultOnNull = true;
+        mode.expressionNames = ExpressionNames.ORIGINAL_SQL;
+        mode.viewExpressionNames = ViewExpressionNames.MYSQL_STYLE;
+        mode.limit = true;
+        mode.autoIncrementClause = true;
+        mode.typeByNameMap.put("YEAR", DataType.getDataType(Value.SMALLINT));
+        mode.groupByColumnIndex = true;
+        add(mode);
+
+        mode = new Mode(ModeEnum.MySQL);
+        mode.indexDefinitionInCreateTable = true;
+        mode.regexpReplaceBackslashReferences = true;
+        mode.onDuplicateKeyUpdate = true;
+        mode.replaceInto = true;
+        mode.charPadding = CharPadding.NEVER;
+        // MySQL allows to use any key for client info entries. See
+        // https://github.com/mysql/mysql-connector-j/blob/5.1.47/src/com/mysql/jdbc/JDBC4CommentClientInfoProvider.java
+        mode.supportedClientInfoPropertiesRegEx =
+                Pattern.compile(".*");
+        mode.zeroExLiteralsAreBinaryStrings = true;
+        mode.allowUnrelatedOrderByExpressionsInDistinctQueries = true;
+        mode.alterTableExtensionsMySQL = true;
+        mode.alterTableModifyColumn = true;
+        mode.truncateTableRestartIdentity = true;
+        mode.allNumericTypesHavePrecision = true;
+        mode.updateSequenceOnManualIdentityInsertion = true;
+        mode.takeInsertedIdentity = true;
+        mode.identityColumnsHaveDefaultOnNull = true;
+        mode.createUniqueConstraintForReferencedColumns = true;
+        mode.expressionNames = ExpressionNames.ORIGINAL_SQL;
+        mode.viewExpressionNames = ViewExpressionNames.MYSQL_STYLE;
+        mode.limit = true;
+        mode.autoIncrementClause = true;
+        mode.typeByNameMap.put("YEAR", DataType.getDataType(Value.SMALLINT));
+        mode.groupByColumnIndex = true;
         add(mode);
 
         mode = new Mode(ModeEnum.Oracle);
@@ -374,40 +591,57 @@ public class Mode {
                 Pattern.compile(".*\\..*");
         mode.alterTableModifyColumn = true;
         mode.decimalSequences = true;
+        mode.charAndByteLengthUnits = true;
+        mode.nextvalAndCurrvalPseudoColumns = true;
+        mode.mergeWhere = true;
+        mode.expressionNames = ExpressionNames.ORIGINAL_SQL;
+        mode.viewExpressionNames = ViewExpressionNames.EXCEPTION;
+        mode.typeByNameMap.put("BINARY_FLOAT", DataType.getDataType(Value.REAL));
+        mode.typeByNameMap.put("BINARY_DOUBLE", DataType.getDataType(Value.DOUBLE));
         dt = DataType.createDate(/* 2001-01-01 23:59:59 */ 19, 19, "DATE", false, 0, 0);
         dt.type = Value.TIMESTAMP;
         dt.sqlType = Types.TIMESTAMP;
-        dt.name = "DATE";
+        dt.specialPrecisionScale = true;
         mode.typeByNameMap.put("DATE", dt);
         add(mode);
 
         mode = new Mode(ModeEnum.PostgreSQL);
         mode.aliasColumnName = true;
-        mode.nullConcatIsNull = true;
         mode.systemColumns = true;
         mode.logIsLogBase10 = true;
         mode.regexpReplaceBackslashReferences = true;
-        mode.serialColumnIsNotPK = true;
         mode.insertOnConflict = true;
         // PostgreSQL only supports the ApplicationName property. See
         // https://github.com/hhru/postgres-jdbc/blob/master/postgresql-jdbc-9.2-1002.src/
         //     org/postgresql/jdbc4/AbstractJdbc4Connection.java
         mode.supportedClientInfoPropertiesRegEx =
                 Pattern.compile("ApplicationName");
-        mode.padFixedLengthStrings = true;
+        mode.charPadding = CharPadding.IN_RESULT_SETS;
+        mode.nextValueReturnsDifferentValues = true;
+        mode.takeGeneratedSequenceValue = true;
+        mode.expressionNames = ExpressionNames.POSTGRESQL_STYLE;
+        mode.allowUsingFromClauseInUpdateStatement = true;
+        mode.limit = true;
+        mode.serialDataTypes = true;
         // Enumerate all H2 types NOT supported by PostgreSQL:
         Set<String> disallowedTypes = new java.util.HashSet<>();
         disallowedTypes.add("NUMBER");
         disallowedTypes.add("IDENTITY");
         disallowedTypes.add("TINYINT");
         disallowedTypes.add("BLOB");
+        disallowedTypes.add("VARCHAR_IGNORECASE");
         mode.disallowedTypes = disallowedTypes;
-        dt = DataType.createNumeric(19, 2, false);
-        dt.type = Value.DECIMAL;
+        dt = DataType.getDataType(Value.JSON);
+        mode.typeByNameMap.put("JSONB", dt);
+        dt = DataType.createNumeric(19, 2);
+        dt.type = Value.NUMERIC;
         dt.sqlType = Types.NUMERIC;
-        dt.name = "MONEY";
+        dt.specialPrecisionScale = true;
         mode.typeByNameMap.put("MONEY", dt);
+        dt = DataType.getDataType(Value.INTEGER);
+        mode.typeByNameMap.put("OID", dt);
         mode.dateTimeValueWithinTransaction = true;
+        mode.groupByColumnIndex = true;
         add(mode);
     }
 

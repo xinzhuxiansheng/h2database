@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -10,7 +10,7 @@ import org.h2.message.DbException;
 import org.h2.result.Row;
 import org.h2.result.SearchRow;
 import org.h2.value.Value;
-import org.h2.value.ValueLong;
+import org.h2.value.ValueBigint;
 
 /**
  * Page Store implementation of a row.
@@ -33,16 +33,15 @@ public final class PageStoreRow {
     static final class RemovedRow extends Row {
 
         RemovedRow(long key) {
-            super(Constants.MEMORY_ROW);
             setKey(key);
         }
 
         @Override
         public Value getValue(int i) {
             if (i == ROWID_INDEX) {
-                return ValueLong.get(key);
+                return ValueBigint.get(key);
             }
-            throw DbException.throwInternalError();
+            throw DbException.getInternalError();
         }
 
         @Override
@@ -50,7 +49,7 @@ public final class PageStoreRow {
             if (i == ROWID_INDEX) {
                 key = v.getLong();
             } else {
-                DbException.throwInternalError();
+                throw DbException.getInternalError();
             }
         }
 
@@ -65,7 +64,7 @@ public final class PageStoreRow {
         }
 
         @Override
-        protected int calculateMemory() {
+        public int getMemory() {
             return Constants.MEMORY_ROW;
         }
 
@@ -74,6 +73,10 @@ public final class PageStoreRow {
             return null;
         }
 
+        @Override
+        public void copyFrom(SearchRow source) {
+            setKey(source.getKey());
+        }
     }
 
     private PageStoreRow() {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -7,7 +7,7 @@ package org.h2.index;
 
 import java.util.ArrayList;
 
-import org.h2.engine.Session;
+import org.h2.engine.SessionLocal;
 import org.h2.expression.condition.Comparison;
 import org.h2.message.DbException;
 import org.h2.result.ResultInterface;
@@ -31,7 +31,7 @@ import org.h2.value.ValueNull;
  */
 public class IndexCursor implements Cursor {
 
-    private Session session;
+    private SessionLocal session;
     private Index index;
     private Table table;
     private IndexColumn[] indexColumns;
@@ -69,7 +69,7 @@ public class IndexCursor implements Cursor {
      * @param s Session.
      * @param indexConditions Index conditions.
      */
-    public void prepare(Session s, ArrayList<IndexCondition> indexConditions) {
+    public void prepare(SessionLocal s, ArrayList<IndexCondition> indexConditions) {
         session = s;
         alwaysFalse = false;
         start = end = null;
@@ -149,7 +149,7 @@ public class IndexCursor implements Cursor {
      * @param s the session
      * @param indexConditions the index conditions
      */
-    public void find(Session s, ArrayList<IndexCondition> indexConditions) {
+    public void find(SessionLocal s, ArrayList<IndexCondition> indexConditions) {
         prepare(s, indexConditions);
         if (inColumn != null) {
             return;
@@ -191,10 +191,8 @@ public class IndexCursor implements Cursor {
             // if an object needs to overlap with both a and b,
             // then it needs to overlap with the union of a and b
             // (not the intersection)
-            ValueGeometry vg = (ValueGeometry) row.getValue(columnId).
-                    convertTo(Value.GEOMETRY);
-            v = ((ValueGeometry) v.convertTo(Value.GEOMETRY)).
-                    getEnvelopeUnion(vg);
+            ValueGeometry vg = row.getValue(columnId).convertToGeometry(null);
+            v = v.convertToGeometry(null).getEnvelopeUnion(vg);
         }
         if (columnId == SearchRow.ROWID_INDEX) {
             row.setKey(v.getLong());
@@ -230,7 +228,7 @@ public class IndexCursor implements Cursor {
         } else if (b == ValueNull.INSTANCE) {
             return a;
         }
-        int comp = table.getDatabase().compare(a, b);
+        int comp = session.compare(a, b);
         if (comp == 0) {
             return a;
         }
@@ -314,7 +312,7 @@ public class IndexCursor implements Cursor {
     }
 
     private void find(Value v) {
-        v = inColumn.convert(v, true);
+        v = inColumn.convert(session, v);
         int id = inColumn.getColumnId();
         start.setValue(id, v);
         cursor = index.find(session, start, start);
@@ -322,7 +320,7 @@ public class IndexCursor implements Cursor {
 
     @Override
     public boolean previous() {
-        throw DbException.throwInternalError(toString());
+        throw DbException.getInternalError(toString());
     }
 
 }

@@ -1,9 +1,11 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.result;
+
+import java.util.Arrays;
 
 import org.h2.value.Value;
 
@@ -11,8 +13,6 @@ import org.h2.value.Value;
  * Represents a row in a table.
  */
 public abstract class Row extends SearchRow {
-
-    private int memory;
 
     /**
      * Creates a new row.
@@ -39,31 +39,24 @@ public abstract class Row extends SearchRow {
         return r;
     }
 
-    protected Row(int memory) {
-        this.memory = memory;
-    }
-
-    @Override
-    public int getMemory() {
-        if (memory != MEMORY_CALCULATE) {
-            return memory;
-        }
-        return memory = calculateMemory();
-    }
-
-    /**
-     * Calculate the estimated memory used for this row, in bytes.
-     *
-     * @return the memory
-     */
-    protected abstract int calculateMemory();
-
     /**
      * Get values.
      *
      * @return values
      */
     public abstract Value[] getValueList();
+
+    /**
+     * Check whether values of this row are equal to values of other row.
+     *
+     * @param other
+     *            the other row
+     * @return {@code true} if values are equal,
+     *         {@code false} otherwise
+     */
+    public boolean hasSameValues(Row other) {
+        return Arrays.equals(getValueList(), other.getValueList());
+    }
 
     /**
      * Check whether this row and the specified row share the same underlying

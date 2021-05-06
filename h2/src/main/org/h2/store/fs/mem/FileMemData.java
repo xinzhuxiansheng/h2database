@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -34,7 +34,7 @@ class FileMemData {
     private String name;
     private final int id;
     private final boolean compress;
-    private long length;
+    private volatile long length;
     private AtomicReference<byte[]>[] data;
     private long lastModified;
     private boolean isReadOnly;
@@ -43,7 +43,7 @@ class FileMemData {
 
     static {
         byte[] n = new byte[BLOCK_SIZE];
-        int len = LZF.compress(n, BLOCK_SIZE, BUFFER, 0);
+        int len = LZF.compress(n, 0, BLOCK_SIZE, BUFFER, 0);
         COMPRESSED_EMPTY_BLOCK = Arrays.copyOf(BUFFER, len);
     }
 
@@ -62,7 +62,7 @@ class FileMemData {
      * @param page the page id
      * @return the byte array, or null
      */
-    byte[] getPage(int page) {
+    private byte[] getPage(int page) {
         AtomicReference<byte[]>[] b = data;
         if (page >= b.length) {
             return null;
@@ -79,7 +79,7 @@ class FileMemData {
      * @param force whether the data should be overwritten even if the old data
      *            doesn't match
      */
-    void setPage(int page, byte[] oldData, byte[] newData, boolean force) {
+    private void setPage(int page, byte[] oldData, byte[] newData, boolean force) {
         AtomicReference<byte[]>[] b = data;
         if (page >= b.length) {
             return;
@@ -230,7 +230,7 @@ class FileMemData {
             return;
         }
         synchronized (LZF) {
-            int len = LZF.compress(old, BLOCK_SIZE, BUFFER, 0);
+            int len = LZF.compress(old, 0, BLOCK_SIZE, BUFFER, 0);
             if (len <= BLOCK_SIZE) {
                 byte[] d = Arrays.copyOf(BUFFER, len);
                 // maybe data was changed in the meantime

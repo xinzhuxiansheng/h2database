@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -53,7 +53,7 @@ public class TestMultiThread extends TestDb implements Runnable {
      * @param a ignored
      */
     public static void main(String... a) throws Exception {
-        TestBase.createCaller().init().test();
+        TestBase.createCaller().init().testFromMain();
     }
 
     @Override
@@ -261,7 +261,7 @@ public class TestMultiThread extends TestDb implements Runnable {
             Statement stmt = conn.createStatement();
             while (!parent.stop) {
                 stmt.execute("SELECT COUNT(*) FROM TEST");
-                stmt.execute("INSERT INTO TEST VALUES(NULL, 'Hi')");
+                stmt.execute("INSERT INTO TEST(NAME) VALUES('Hi')");
                 PreparedStatement prep = conn.prepareStatement(
                         "UPDATE TEST SET NAME='Hello' WHERE ID=?");
                 prep.setInt(1, random.nextInt(10000));

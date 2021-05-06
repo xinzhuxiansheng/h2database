@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -75,10 +75,9 @@ public class Bnf {
     private RuleHead addRule(String topic, String section, Rule rule) {
         RuleHead head = new RuleHead(section, topic, rule);
         String key = StringUtils.toLowerEnglish(topic.trim().replace(' ', '_'));
-        if (ruleMap.get(key) != null) {
+        if (ruleMap.putIfAbsent(key, head) != null) {
             throw new AssertionError("already exists: " + topic);
         }
-        ruleMap.put(key, head);
         return head;
     }
 
@@ -118,9 +117,10 @@ public class Bnf {
         addFixedRule("@hms@", RuleFixed.HMS);
         addFixedRule("@nanos@", RuleFixed.NANOS);
         addFixedRule("anything_except_single_quote", RuleFixed.ANY_EXCEPT_SINGLE_QUOTE);
+        addFixedRule("single_character", RuleFixed.ANY_EXCEPT_SINGLE_QUOTE);
         addFixedRule("anything_except_double_quote", RuleFixed.ANY_EXCEPT_DOUBLE_QUOTE);
         addFixedRule("anything_until_end_of_line", RuleFixed.ANY_UNTIL_EOL);
-        addFixedRule("anything_until_end_comment", RuleFixed.ANY_UNTIL_END);
+        addFixedRule("anything_until_comment_start_or_end", RuleFixed.ANY_UNTIL_END);
         addFixedRule("anything_except_two_dollar_signs", RuleFixed.ANY_EXCEPT_2_DOLLAR);
         addFixedRule("anything", RuleFixed.ANY_WORD);
         addFixedRule("@hex_start@", RuleFixed.HEX_START);

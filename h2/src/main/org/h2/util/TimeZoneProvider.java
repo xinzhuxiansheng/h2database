@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -45,6 +45,9 @@ public abstract class TimeZoneProvider {
         if (offset == 0) {
             return UTC;
         }
+        if (offset < (-18 * 60 * 60) || offset > (18 * 60 * 60)) {
+            throw new IllegalArgumentException("Time zone offset " + offset + " seconds is out of range");
+        }
         return new Simple(offset);
     }
 
@@ -54,10 +57,10 @@ public abstract class TimeZoneProvider {
      * @param id
      *            the ID of the time zone
      * @return the time zone provider with the specified name
-     * @throws IllegalArgumentException
+     * @throws RuntimeException
      *             if time zone with specified ID isn't known
      */
-    public static TimeZoneProvider ofId(String id) throws IllegalArgumentException {
+    public static TimeZoneProvider ofId(String id) throws RuntimeException {
         int length = id.length();
         if (length == 1 && id.charAt(0) == 'Z') {
             return UTC;
@@ -67,20 +70,20 @@ public abstract class TimeZoneProvider {
             if (length == 3) {
                 return UTC;
             }
-            index += 3;
+            index = 3;
         }
-        readOffset: if (length - index >= 2) {
+        if (length > index) {
             boolean negative = false;
             char c = id.charAt(index);
-            if (c == '+') {
-                c = id.charAt(++index);
-            } else if (c == '-') {
-                negative = true;
-                c = id.charAt(++index);
-            } else {
-                break readOffset;
+            if (length > index + 1) {
+                if (c == '+') {
+                    c = id.charAt(++index);
+                } else if (c == '-') {
+                    negative = true;
+                    c = id.charAt(++index);
+                }
             }
-            if (c >= '0' && c <= '9') {
+            if (index != 3 && c >= '0' && c <= '9') {
                 int hour = c - '0';
                 if (++index < length) {
                     c = id.charAt(index);
@@ -247,6 +250,22 @@ public abstract class TimeZoneProvider {
         }
 
         @Override
+        public int hashCode() {
+            return offset + 129607;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (obj == null || obj.getClass() != Simple.class) {
+                return false;
+            }
+            return offset == ((Simple) obj).offset;
+        }
+
+        @Override
         public int getTimeZoneOffsetUTC(long epochSeconds) {
             return offset;
         }
@@ -302,10 +321,6 @@ public abstract class TimeZoneProvider {
          */
         static final long SECONDS_PER_YEAR = SECONDS_PER_PERIOD / 400;
 
-        private static final long EPOCH_SECONDS_HIGH = 31556889864403199L;
-
-        private static final long EPOCH_SECONDS_LOW = -31557014167219200L;
-
         private static volatile DateTimeFormatter TIME_ZONE_FORMATTER;
 
         private final ZoneId zoneId;
@@ -315,18 +330,38 @@ public abstract class TimeZoneProvider {
         }
 
         @Override
+        public int hashCode() {
+            return zoneId.hashCode() + 951689;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (obj == null || obj.getClass() != WithTimeZone.class) {
+                return false;
+            }
+            return zoneId.equals(((WithTimeZone) obj).zoneId);
+        }
+
+        @Override
         public int getTimeZoneOffsetUTC(long epochSeconds) {
             /*
              * Construct an Instant with EPOCH seconds within the range
-             * -31,557,014,167,219,200..31,556,889,864,403,199
-             * (-1000000000-01-01T00:00Z..1000000000-12-31T23:59:59.999999999Z).
-             * Too large and too small EPOCH seconds are replaced with EPOCH
-             * seconds within the range using the 400 years period of the
-             * Gregorian calendar.
+             * -31,557,014,135,532,000..31,556,889,832,715,999
+             * (-999999999-01-01T00:00-18:00..
+             * +999999999-12-31T23:59:59.999999999+18:00). Too large and too
+             * small EPOCH seconds are replaced with EPOCH seconds within the
+             * range using the 400 years period of the Gregorian calendar.
+             *
+             * H2 has slightly wider range of EPOCH seconds than Instant, and
+             * ZoneRules.getOffset(Instant) does not support all Instant values
+             * in all time zones.
              */
-            if (epochSeconds > EPOCH_SECONDS_HIGH) {
+            if (epochSeconds > 31_556_889_832_715_999L) {
                 epochSeconds -= SECONDS_PER_PERIOD;
-            } else if (epochSeconds < EPOCH_SECONDS_LOW) {
+            } else if (epochSeconds < -31_557_014_135_532_000L) {
                 epochSeconds += SECONDS_PER_PERIOD;
             }
             return zoneId.getRules().getOffset(Instant.ofEpochSecond(epochSeconds)).getTotalSeconds();
